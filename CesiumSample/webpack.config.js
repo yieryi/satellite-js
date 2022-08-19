@@ -104,7 +104,7 @@ const config = {
     }),
     new webpack.DefinePlugin({
       // Define relative base path in cesium for loading assets
-      CESIUM_BASE_URL: JSON.stringify(""),
+      CESIUM_BASE_URL: JSON.stringify("."),
     }),
     new HtmlWebpackPlugin({
       // templateContent: ({ htmlWebpackPlugin }) => '<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>' + htmlWebpackPlugin.options.title + '</title></head><body><div id=\"app\"></div></body></html>',
