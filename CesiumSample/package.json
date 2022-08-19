@@ -10,7 +10,7 @@
     "clean": "rm dist/bundle.js",
     "build-dev": "webpack --mode development ",
     "build-prod": "webpack --mode production",
-    "server": "webpack serve --mode development --open"
+    "start": "webpack serve --mode development --open"
   },
   "dependencies": {
     "bootstrap": "^5.2.0",
