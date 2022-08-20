@@ -13,11 +13,32 @@ const cesiumSource = "node_modules/cesium/Source";
 const cesiumWorkers = "../Build/Cesium/Workers";
 
 const config = {
-  entry: "./src/index.js",
+  entry: {
+    CesiumXPlugin: {
+      import: "./src/plugin.js",
+      library: {
+        name: "CesiumXPlugin",
+        type: "umd",
+        export: "default",
+      },
+    },
+    main: {
+      import: "./src/main.js",  
+    },
+  },
   output: {
     path: path.resolve(__dirname, "dist"),
     filename: "[name].js",
     sourcePrefix: "", // Needed by Cesium for multiline strings
+    clean: true,
+  },
+  externals: {
+    cesium: {
+      commonjs: "Cesium",
+      commonjs2: "Cesium",
+      amd: "Cesium",
+      root: "Cesium",
+    },
   },
   resolve: {
     alias: {

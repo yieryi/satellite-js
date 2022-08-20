@@ -1,9 +1,10 @@
 // package.json部分不能指定 type:"module",或者type:"commonjs",因为webpack脚本用的commonjs,此处脚本引入使用的import
 import "./styles.css";
 import "cesium/Widgets/widgets.css";
-import * as Cesium from "cesium/Cesium.js";
-// import * as satellite from "../../src/index.js"; // 引入插件
+// import * as Cesium from "cesium/Cesium.js";
 
+window.Cesium=Cesium;
+//import CesiumXPlugin from "./plugin.js"; // 从ES6源码环境直接加载调试，注释掉则从生成打包后的CesiumXPlugin.js加载
 
 Cesium.Ion.defaultAccessToken = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI3MzAxMTQwMC1jYzMzLTQyYjMtOWIwYi03OTlkODMxMWY3OTMiLCJpZCI6NDg3OCwiaWF0IjoxNjU3NzA0MjcxfQ.Z5zUcdtKlHIeKKvqrpL4qQn2bu2pveOAdeS_oyFa3yY`;
 Cesium.Camera.DEFAULT_VIEW_RECTANGLE = Cesium.Rectangle.fromDegrees(
@@ -63,3 +64,27 @@ const onceTilesLoaded = scene.postRender.addEventListener(function () {
     onceTilesLoaded();
   }
 });
+
+
+const spaceCatalogDataSource=new CesiumXPlugin.SpaceCatalogDataSource("TLE卫星轨道数据",{
+  temeToECEF: true,
+  default: {
+    path: {
+      material: Cesium.Color.WHITE,
+      width: 1.25,
+      leadTime: 5e3,
+      trailTime: 5e3,
+      resolution: 120,
+      show: !1,
+    },
+    point: {
+      position: new Cesium.Cartesian3(0, 0, 0),
+      color: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK.withAlpha(0.3),
+      outlineWidth: 1,
+      pixelSize: 4,
+      scaleByDistance: new Cesium.NearFarScalar(1, 1.4, 5e7, 0.4),
+      translucencyByDistance: new Cesium.NearFarScalar(1, 1, 5e7, 0.78),
+    },
+  },
+})

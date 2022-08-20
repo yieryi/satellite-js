@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>示例名称</title>
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no"
+  />
+  <meta name="description" content="示例简要描述"/>
+  <script type="text/javascript" src="js/Sandcastle-header.js"></script>
+  <script src="js/dat.gui-0.6.5/dat.gui.min.js"></script>
+  <script src="js/config.samplesdata.js"></script>
+  <script type="module" src="./js/load-cesium-es6.js"></script>
+  <link rel="stylesheet" href="css/bucket.css"/>
+  <link rel="stylesheet" href="css/demo.css"/>
+  <script src="js/CesiumXPlugin.js"></script>
+  <script src="js/satellite.js"></script>
+
+</head>
+<body class="sandcastle-loading">
+<div id="geniusContainer" class="fullSize"></div>
+<div id="loadingOverlay"><h1>正在加载...</h1></div>
+<div id="toolbar">
+</div>
+<div id="tips">
+  全球卫星运动数据
+</div>
+<script>
+  function startup(Cesium) {
+    'use strict';
+    Cesium.Ion.defaultAccessToken = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI3MzAxMTQwMC1jYzMzLTQyYjMtOWIwYi03OTlkODMxMWY3OTMiLCJpZCI6NDg3OCwiaWF0IjoxNjU3NzA0MjcxfQ.Z5zUcdtKlHIeKKvqrpL4qQn2bu2pveOAdeS_oyFa3yY`;
+
+    const clock = new Cesium.Clock({
+      startTime : Cesium.JulianDate.fromIso8601("2022-07-11T00:00:00Z"),
+      stopTime : Cesium.JulianDate.fromIso8601("2022-07-11T24:00:00Z"),
+      currentTime : Cesium.JulianDate.fromIso8601("2022-07-11T10:00:00Z"),
+      clockRange : Cesium.ClockRange.LOOP_STOP,
+      clockStep : Cesium.ClockStep.SYSTEM_CLOCK_MULTIPLIER,
+      multiplier : 1500,
+      shouldAnimate : true,
+    });
+    const viewer = new Cesium.Viewer("geniusContainer", {
+      clockViewModel : new Cesium.ClockViewModel(clock),
+      terrainProvider : new Cesium.EllipsoidTerrainProvider(),
+      imageryProvider : new Cesium.SingleTileImageryProvider({
+        url : sampleData.image.bluemarble
+      }),
+      clockStep : Cesium.ClockRange.LOOP_STOP,
+      useDefaultRenderLoop : true,
+      targetFrameRate : 60,
+      showRenderLoopErrors : true,
+      requestRenderMode : true,
+      timeline : true,
+      animation : true
+    });
+    window.viewer = viewer;
+    document.getElementById("Coor").style.bottom = "32px"; // 鼠标状态栏上调
+    const nightLightImageryLayer = viewer.imageryLayers.addImageryProvider(
+      new Cesium.IonImageryProvider({assetId : 3812})
+    );
+    nightLightImageryLayer.dayAlpha = 0;
+    const scene = viewer.scene;
+    scene.backgroundColor = Cesium.Color.fromCssColorString("#0E1422");
+    scene.globe.enableLighting = true;
+    scene.globe.nightFadeOutDistance = 1e8;
+
+    scene.postUpdate.addEventListener(function(scene, time) {
+      // 相机坐标为地心地固坐标系Earth-Centered,Earth-Fixed,时间变化，相机与地球相对位置不变,恒星系变化（星空旋转) Cesium.ReferenceFrame.INERTIAL
+      const icrfToFixed = Cesium.Transforms.computeIcrfToFixedMatrix(time);
+      if (Cesium.defined(icrfToFixed)) {
+        const camera = scene.camera;
+        const offset = Cesium.Cartesian3.clone(camera.position),
+          transform = Cesium.Matrix4.fromRotationTranslation(icrfToFixed);
+        //  地心惯性坐标系 Earth-centered inertial (ECI) coordinates 恒星系.相机与恒星位置保持不变，地球旋转  Cesium.ReferenceFrame.FIXED
+        camera.lookAtTransform(transform, offset);
+      }
+    });
+    const onceTilesLoaded = scene.postRender.addEventListener(function() {
+      if (scene.globe.tilesLoaded) {
+        onceTilesLoaded();
+      }
+    });
+    const dataSource = new Cesium.CustomDataSource();
+    fetch(sampleData.tle.catalog)
+      .then(resp => resp.text())
+      .then(function(data) {
+        const splited = data.split("\r\n");
+        const lineCount = splited.length;
+        const catalog = [];
+        for (let i = 0; i < lineCount; i += 3) {
+          const catalogName = splited[i].trim();
+          if (catalogName === "" || i > 3000) {
+            continue;
+          }
+          if (catalogName.indexOf("BEIDOU") === -1) {
+            // continue;
+          }
+          catalog.push({
+            name : catalogName.trim(),
+            tleLine1 : splited[i + 1],
+            tleLine2 : splited[i + 2],
+          })
+        }
+        return catalog;
+      })
+      .then(function(catalog) {
+        console.dir(catalog);
+
+        dataSource.entities.suspendEvents();
+        const count = catalog.length;
+        for (let i = 0; i < count; i++) {
+          const sat = catalog[i];
+          const satrec = satellite.twoline2satrec(sat.tleLine1, sat.tleLine2);
+
+          const entity = new Cesium.Entity({
+            name : sat.name,
+            id : satrec.satnum,
+            point : {
+              color : Cesium.Color.WHITE,
+              outlineColor : Cesium.Color.BLACK.withAlpha(0.3),
+              outlineWidth : 1,
+              pixelSize : 4,
+              scaleByDistance : new Cesium.NearFarScalar(1, 1.4, 5e7, 0.4),
+              translucencyByDistance : new Cesium.NearFarScalar(1, 1, 5e7, 0.78),
+            },
+          })
+          entity.satrec = satrec;
+
+          entity.position = new Cesium.CallbackProperty(function(julianDate, result) {
+            if (!Cesium.defined(result)) {
+              result = new Cesium.Cartesian3();
+            }
+            let tempDate = Cesium.JulianDate.toDate(julianDate);
+            let positionAndVelocity = satellite.propagate(satrec, tempDate);
+            let positionEci = positionAndVelocity.position;
+            if (!Cesium.defined(positionEci)) {
+              let velocityEci = positionAndVelocity.velocity;
+              entity.show = false;
+              return result;
+            }
+            let gmst = satellite.gstime(tempDate);
+            let positionEcf = satellite.eciToEcf(positionEci, gmst);
+            result = Cesium.Cartesian3.multiplyByScalar(positionEcf, 1000, result);
+            return result;
+          }, false);
+          dataSource.entities.add(entity);
+        }
+        viewer.dataSources.add(dataSource);
+      })
+      .catch(function(error) {
+        console.error(error);
+        debugger;
+      });
+    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+    let labelDescripPickedEntity = null;
+    handler.setInputAction(function(event) {
+      if (labelDescripPickedEntity) {
+        dataSource.entities.remove(labelDescripPickedEntity);
+        labelDescripPickedEntity = null;
+      }
+
+      const pickedObject = viewer.scene.pick(event.position);
+      if (!Cesium.defined(pickedObject)) {
+
+        return;
+      }
+      if (pickedObject.id instanceof Cesium.Entity) {
+        const pickedEntity = pickedObject.id;
+        labelDescripPickedEntity = new Cesium.Entity({
+          label : {
+            text : `${pickedEntity.name}\n${pickedEntity.id}`,
+            showBackground : true,
+            style : Cesium.LabelStyle.FILL_AND_OUTLINE,
+          }
+        })
+        labelDescripPickedEntity.position = pickedEntity.position;
+        viewer.flyTo(pickedEntity);
+        dataSource.entities.add(labelDescripPickedEntity);
+      }
+
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    Sandcastle.finishedLoading();
+  }
+</script>
+</body>
+</html>
