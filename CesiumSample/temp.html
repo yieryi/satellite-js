@@ -37,7 +37,7 @@
       currentTime : Cesium.JulianDate.fromIso8601("2022-07-11T10:00:00Z"),
       clockRange : Cesium.ClockRange.LOOP_STOP,
       clockStep : Cesium.ClockStep.SYSTEM_CLOCK_MULTIPLIER,
-      multiplier : 1500,
+      multiplier : 1200,
       shouldAnimate : true,
     });
     const viewer = new Cesium.Viewer("geniusContainer", {
@@ -48,6 +48,16 @@
       }),
       clockStep : Cesium.ClockRange.LOOP_STOP,
       useDefaultRenderLoop : true,
+      skyBox : new Cesium.SkyBox({
+        sources : {
+          positiveX : sampleData.skybox.celestrak.px,
+          positiveY : sampleData.skybox.celestrak.py,
+          positiveZ : sampleData.skybox.celestrak.pz,
+          negativeX : sampleData.skybox.celestrak.nx,
+          negativeY : sampleData.skybox.celestrak.ny,
+          negativeZ : sampleData.skybox.celestrak.nz,
+        },
+      }),
       targetFrameRate : 60,
       showRenderLoopErrors : true,
       requestRenderMode : true,
@@ -65,22 +75,6 @@
     scene.globe.enableLighting = true;
     scene.globe.nightFadeOutDistance = 1e8;
 
-    scene.postUpdate.addEventListener(function(scene, time) {
-      // 相机坐标为地心地固坐标系Earth-Centered,Earth-Fixed,时间变化，相机与地球相对位置不变,恒星系变化（星空旋转) Cesium.ReferenceFrame.INERTIAL
-      const icrfToFixed = Cesium.Transforms.computeIcrfToFixedMatrix(time);
-      if (Cesium.defined(icrfToFixed)) {
-        const camera = scene.camera;
-        const offset = Cesium.Cartesian3.clone(camera.position),
-          transform = Cesium.Matrix4.fromRotationTranslation(icrfToFixed);
-        //  地心惯性坐标系 Earth-centered inertial (ECI) coordinates 恒星系.相机与恒星位置保持不变，地球旋转  Cesium.ReferenceFrame.FIXED
-        camera.lookAtTransform(transform, offset);
-      }
-    });
-    const onceTilesLoaded = scene.postRender.addEventListener(function() {
-      if (scene.globe.tilesLoaded) {
-        onceTilesLoaded();
-      }
-    });
     const dataSource = new Cesium.CustomDataSource();
     fetch(sampleData.tle.catalog)
       .then(resp => resp.text())
@@ -106,9 +100,23 @@
       })
       .then(function(catalog) {
         console.dir(catalog);
-
-        dataSource.entities.suspendEvents();
         const count = catalog.length;
+        // let dynamicOffsetEpoch = Date.now(), staticOffset = 0, propRate = 1.0;
+
+        // function propTime(dynamicOffsetEpoch, staticOffset, propRate) {
+        //   const now = new Date();
+        //   const dynamicPropOffset = now.getTime() - dynamicOffsetEpoch;
+        //   now.setTime(dynamicOffsetEpoch + staticOffset + dynamicPropOffset * propRate);
+        //   return now;
+        // };
+        // const nowDate = propTime(dynamicOffsetEpoch, staticOffset, propRate);
+        // const nowJ = satellite.jday(nowDate.getUTCFullYear(), nowDate.getUTCMonth() + 1, nowDate.getUTCDate(), nowDate.getUTCHours(), nowDate.getUTCMinutes(), nowDate.getUTCSeconds()) +
+        //              nowDate.getUTCMilliseconds() * 1.15741e-8; // days per millisecond
+        //
+        // const NUM_SEGS = 255;
+        // const len = NUM_SEGS + 1;
+        // const TAU = 2 * Math.PI;
+
         for (let i = 0; i < count; i++) {
           const sat = catalog[i];
           const satrec = satellite.twoline2satrec(sat.tleLine1, sat.tleLine2);
@@ -124,6 +132,18 @@
               scaleByDistance : new Cesium.NearFarScalar(1, 1.4, 5e7, 0.4),
               translucencyByDistance : new Cesium.NearFarScalar(1, 1, 5e7, 0.78),
             },
+            // path : {
+            //   show : true,
+            //   leadTime : 0,
+            //   trailTime : 60,
+            //   width : 10,
+            //   resolution : 1,
+            //   material : new Cesium.PolylineGlowMaterialProperty({
+            //     glowPower : 0.3,
+            //     taperPower : 0.3,
+            //     color : Cesium.Color.PALEGOLDENROD,
+            //   }),
+            // },
           })
           entity.satrec = satrec;
 
@@ -152,34 +172,110 @@
         console.error(error);
         debugger;
       });
+
+    let labelDescripPickedEntity = null, lastPickedEntity;
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-    let labelDescripPickedEntity = null;
     handler.setInputAction(function(event) {
+
       if (labelDescripPickedEntity) {
+        dataSource.entities.suspendEvents();
         dataSource.entities.remove(labelDescripPickedEntity);
+        dataSource.entities.resumeEvents();
         labelDescripPickedEntity = null;
       }
+      if (lastPickedEntity) {
+        lastPickedEntity.point.color = Cesium.Color.WHITE;
+        lastPickedEntity.point.outlineColor = Cesium.Color.BLACK.withAlpha(0.3);
+        lastPickedEntity.point.outlineWidth = 1;
+        lastPickedEntity.point.pixelSize = 4;
+        if (Cesium.defined(lastPickedEntity.polyline)) {
+          lastPickedEntity.polyline.show = false;
+        }
+        lastPickedEntity = undefined;
+      }
 
-      const pickedObject = viewer.scene.pick(event.position);
+      const pickedObject = viewer.scene.pick(event.endPosition);
       if (!Cesium.defined(pickedObject)) {
-
         return;
       }
-      if (pickedObject.id instanceof Cesium.Entity) {
-        const pickedEntity = pickedObject.id;
-        labelDescripPickedEntity = new Cesium.Entity({
-          label : {
-            text : `${pickedEntity.name}\n${pickedEntity.id}`,
-            showBackground : true,
-            style : Cesium.LabelStyle.FILL_AND_OUTLINE,
-          }
-        })
-        labelDescripPickedEntity.position = pickedEntity.position;
-        viewer.flyTo(pickedEntity);
-        dataSource.entities.add(labelDescripPickedEntity);
-      }
+      if (pickedObject.id instanceof Cesium.Entity && Cesium.defined(pickedObject.id.point)) {
+        lastPickedEntity = pickedObject.id;
+        lastPickedEntity.point.pixelSize = 12;
+        lastPickedEntity.point.color = Cesium.Color.RED;
+        if (!Cesium.defined(lastPickedEntity.polyline)) {
+          const nowDate = Cesium.JulianDate.toDate(viewer.clock.currentTime);
+          const satrec = lastPickedEntity.satrec;
+          const nowJ = satellite.jday(nowDate.getUTCFullYear(), nowDate.getUTCMonth() + 1, nowDate.getUTCDate(), nowDate.getUTCHours(), nowDate.getUTCMinutes(), nowDate.getUTCSeconds()) +
+                       nowDate.getUTCMilliseconds() * 1.15741e-8; // days per millisecond
 
-    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+          let now = (nowJ - satrec.jdsatepoch) * 1440.0; // in minutes
+          const NUM_SEGS = 255;
+          const len = NUM_SEGS + 1;
+          let period = (2 * Math.PI) / satrec.no; // convert rads/min to min
+          let timeslice = period / NUM_SEGS;
+          let linePositions = [];
+          let j = 0;
+          while (j < len) {
+            j++;
+            const t = now + j * timeslice;
+            let p = satellite.sgp4(satrec, t)?.position;
+            if (isNaN(p.x) || isNaN(p.y) || isNaN(p.z)) {
+              continue;
+            }
+            linePositions.push(Cesium.Cartesian3.multiplyByScalar(p, 1000, new Cesium.Cartesian3()));
+          }
+          lastPickedEntity.polyline = new Cesium.PolylineGraphics({
+            positions : linePositions
+          });
+        } else {
+          lastPickedEntity.polyline.show = true;
+        }
+
+        labelDescripPickedEntity = new Cesium.Entity({
+          position : lastPickedEntity.position.getValue(viewer.clock.currentTime),
+          label : {
+            text : `id:${lastPickedEntity.id}\n名称:${lastPickedEntity.name}`,
+            showBackground : true,
+            backgroundColor : Cesium.Color.WHITE,
+            style : Cesium.LabelStyle.FILL_AND_OUTLINE,
+            fillColor : Cesium.Color.RED,
+            outlineColor : Cesium.Color.YELLOW,
+            outlineWidth : 2,
+            font : "18px sans-serif",
+            horizontalOrigin : Cesium.HorizontalOrigin.LEFT,
+            verticalOrigin : Cesium.VerticalOrigin.CENTER,
+            showBorder : true,
+            disableDepthTestDistance : Number.POSITIVE_INFINITY,
+            scaleByDistance : new Cesium.NearFarScalar(1, 1, 5e7, 0.4),
+          }
+        });
+
+        dataSource.entities.add(labelDescripPickedEntity);
+        // viewer.flyTo(pickedEntity);
+      }
+      // }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+    const viewModel = {
+      viewInECI : true
+    }
+    scene.postUpdate.addEventListener(function(scene, time) {
+      if (viewModel.viewInECI) {
+        return;
+      }
+      const icrfToFixed = Cesium.Transforms.computeIcrfToFixedMatrix(time);
+      if (Cesium.defined(icrfToFixed)) {
+        const camera = scene.camera;
+        const offset = Cesium.Cartesian3.clone(camera.position),
+          transform = Cesium.Matrix4.fromRotationTranslation(icrfToFixed);
+        camera.lookAtTransform(transform, offset);
+      }
+    });
+
+    const pannel = new dat.gui.GUI();
+    pannel.width = 300;
+    const paramControl = pannel.addFolder("参数设置");
+    paramControl.add(viewModel, "viewInECI").name("ReferenceFrame.INERTIAL")
     Sandcastle.finishedLoading();
   }
 </script>
